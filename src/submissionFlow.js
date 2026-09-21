@@ -1,6 +1,7 @@
 const { Scenes, Markup } = require('telegraf');
 const { v4: uuidv4 } = require('uuid');
 const sheets = require('./sheets');
+const { withCancel, isCancelText, replyCancelled } = require('./flowHelpers');
 
 const COPY = {
   normal: {
@@ -25,8 +26,18 @@ function previewText(data) {
     `年龄：${data.age}`,
   ];
   if (data.tag) lines.push(`介绍：${data.tag}`);
-  lines.push('', '确认无误就提交，射手们明晚9点就能看到。');
+  lines.push('', '确认无误就提交，射手们很快就能看到。');
   return lines.join('\n');
+}
+
+// 每一步开头先检查是否是取消操作，是的话直接退出场景
+async function checkCancel(ctx) {
+  if (ctx.message?.text && isCancelText(ctx.message.text)) {
+    await replyCancelled(ctx);
+    await ctx.scene.leave();
+    return true;
+  }
+  return false;
 }
 
 const submissionWizard = new Scenes.WizardScene(
@@ -36,60 +47,71 @@ const submissionWizard = new Scenes.WizardScene(
     const source = ctx.scene.state.source || 'normal';
     ctx.wizard.state.source = source;
     ctx.wizard.state.photos = [];
-    await ctx.reply(COPY[source].photo);
+    await ctx.reply(COPY[source].photo, withCancel());
     return ctx.wizard.next();
   },
   // Step 1: 继续收集照片，直到用户输入"完成"
   async (ctx) => {
+    if (await checkCancel(ctx)) return;
+
     if (ctx.message?.photo) {
       const largest = ctx.message.photo[ctx.message.photo.length - 1];
       ctx.wizard.state.photos.push(largest.file_id);
       if (ctx.wizard.state.photos.length >= 3) {
-        await ctx.reply('已经收到3张了，输入「完成」继续下一步。');
+        await ctx.reply('已经收到3张了，输入「完成」继续下一步。', withCancel());
       } else {
-        await ctx.reply(`收到（${ctx.wizard.state.photos.length}/3），继续发或输入「完成」。`);
+        await ctx.reply(
+          `收到（${ctx.wizard.state.photos.length}/3），继续发或输入「完成」。`,
+          withCancel()
+        );
       }
       return;
     }
     if (ctx.message?.text?.trim() === '完成') {
       if (ctx.wizard.state.photos.length === 0) {
-        await ctx.reply('还没收到照片呢，先发一张图片吧。');
+        await ctx.reply('还没收到照片呢，先发一张图片吧。', withCancel());
         return;
       }
       const source = ctx.wizard.state.source;
-      await ctx.reply(COPY[source].name);
+      await ctx.reply(COPY[source].name, withCancel());
       return ctx.wizard.next();
     }
-    await ctx.reply('请发送图片，或输入「完成」结束上传。');
+    await ctx.reply(
+      '这不是图片哦，请发送照片，或输入「完成」结束上传，「取消」退出。',
+      withCancel()
+    );
   },
   // Step 2: 名字
   async (ctx) => {
+    if (await checkCancel(ctx)) return;
     if (!ctx.message?.text) {
-      await ctx.reply('请输入名字（文字）。');
+      await ctx.reply('请输入名字（文字）。', withCancel());
       return;
     }
     ctx.wizard.state.name = ctx.message.text.trim();
     const source = ctx.wizard.state.source;
-    await ctx.reply(COPY[source].age);
+    await ctx.reply(COPY[source].age, withCancel());
     return ctx.wizard.next();
   },
   // Step 3: 年龄
   async (ctx) => {
+    if (await checkCancel(ctx)) return;
     const text = ctx.message?.text?.trim();
     if (!text || isNaN(parseInt(text, 10))) {
-      await ctx.reply('年龄请输入数字。');
+      await ctx.reply('年龄请输入数字，或输入「取消」退出。', withCancel());
       return;
     }
     ctx.wizard.state.age = parseInt(text, 10);
     const source = ctx.wizard.state.source;
-    await ctx.reply(COPY[source].tag);
+    await ctx.reply(COPY[source].tag, withCancel());
     return ctx.wizard.next();
   },
   // Step 4: 标签/介绍（选填）
   async (ctx) => {
+    if (await checkCancel(ctx)) return;
     const text = ctx.message?.text?.trim();
     if (!text) {
-      await ctx.reply('请输入文字，或输入「跳过」。');
+      await ctx.reply('请输入文字，或输入「跳过」，或「取消」退出。', withCancel());
       return;
     }
     ctx.wizard.state.tag = text === '跳过' ? '' : text;
@@ -101,19 +123,24 @@ const submissionWizard = new Scenes.WizardScene(
           Markup.button.callback('✅ 确认提交', 'submit_confirm'),
           Markup.button.callback('✏️ 重新填写', 'submit_restart'),
         ],
+        [Markup.button.callback('❌ 取消', 'cancel_flow')],
       ]),
     });
     return ctx.wizard.next();
   },
   // Step 5: 等待确认按钮点击（由外部 action 处理跳出场景）
   async (ctx) => {
-    // 停留在这一步，等待 callback action
+    if (await checkCancel(ctx)) return;
+    await ctx.reply('请点上面的按钮确认提交、重新填写，或取消。', withCancel());
   }
 );
 
 async function handleSubmitConfirm(ctx) {
-  const state = ctx.scene.state ? ctx.scene.state : ctx.wizard?.state;
   const data = ctx.wizard?.state || {};
+  if (!data.photos || data.photos.length === 0) {
+    await ctx.answerCbQuery('资料不完整，请重新 /start 投稿。');
+    return ctx.scene.leave();
+  }
 
   const isPriority = await sheets.hasInvited(ctx.from.id).catch(() => false);
 
@@ -131,15 +158,17 @@ async function handleSubmitConfirm(ctx) {
   };
 
   await sheets.appendSubmission(submission);
+  console.log(`[投稿] user ${ctx.from.id} 提交猎物 ${submission.id} (priority=${isPriority})`);
 
   await ctx.editMessageCaption(
-    '收到，已经放进今日待发布池了。\n明晚9点通告见，记得留意反应哦。'
+    '收到，已经放进待发布池了。\n下一次整点通告见，记得留意反应哦。'
   );
   return ctx.scene.leave();
 }
 
 async function handleSubmitRestart(ctx) {
   await ctx.editMessageCaption('好，重新来。输入 /start 重新开始投稿。');
+  console.log(`[投稿] user ${ctx.from.id} 选择重新填写`);
   return ctx.scene.leave();
 }
 

@@ -38,6 +38,18 @@ function getInterestCount(submissionId) {
   return (db.interests[submissionId] || []).length;
 }
 
+// ---- 每日猎物编号（连续编号，按当天日期重置） ----
+function getNextDailyNumber() {
+  const db = load();
+  if (!db.dailyCounter) db.dailyCounter = {};
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  if (!db.dailyCounter[today]) db.dailyCounter[today] = 0;
+  db.dailyCounter[today] += 1;
+  const n = db.dailyCounter[today];
+  save(db);
+  return n;
+}
+
 // ---- Flood 检测（短时间刷屏） ----
 function recordMessage(userId, windowSeconds, limit) {
   const db = load();
@@ -70,6 +82,7 @@ function isNewUserWithinGrace(userId, graceSeconds) {
 module.exports = {
   addInterest,
   getInterestCount,
+  getNextDailyNumber,
   recordMessage,
   markUserJoined,
   isNewUserWithinGrace,

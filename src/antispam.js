@@ -46,6 +46,7 @@ async function handleGroupMessage(ctx, next) {
 
   if (violation) {
     try {
+      const originalText = text || '(非文字消息)';
       await ctx.deleteMessage();
       await ctx.telegram.banChatMember(ctx.chat.id, userId, {
         until_date: Math.floor(Date.now() / 1000) + 60, // 临时封禁60秒=等效踢出，可再加入
@@ -54,6 +55,9 @@ async function handleGroupMessage(ctx, next) {
       await ctx.reply('⚠️ 检测到异常消息，已自动处理。', {
         reply_to_message_id: undefined,
       });
+      console.log(
+        `[反spam] 群消息删除 - user ${userId} - 原因:${violation} - 原文:"${originalText}"`
+      );
     } catch (e) {
       console.error('反spam处理失败:', e.message);
     }
