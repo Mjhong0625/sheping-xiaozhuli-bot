@@ -1,0 +1,17 @@
+{
+  "name": "sheping-xiaozhuli-bot",
+  "version": "0.1.0",
+  "description": "射屏小助理 - UGC投稿 + 每日通告 + 反spam Telegram bot",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "node-cron": "^3.0.3",
+    "googleapis": "^140.0.1",
+    "dotenv": "^16.4.5",
+    "uuid": "^9.0.1"
+  }
+}
