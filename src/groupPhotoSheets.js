@@ -81,12 +81,14 @@ async function getAllGroupPhotos() {
   const rows = res.data.values || [];
   const [, ...data] = rows;
   return data
+    .filter((row) => row[0]) // 过滤空行/坏数据
     .map((row) => ({
       id: row[0],
       userId: row[1],
       username: row[2],
       photoFileId: row[3],
       submittedAt: row[4],
+      posted: row[5] === 'TRUE',
       mediaType: row[7] || 'photo',
     }))
     .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));

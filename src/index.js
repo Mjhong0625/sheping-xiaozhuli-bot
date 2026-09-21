@@ -245,30 +245,43 @@ bot.hears('/全部素材', async (ctx) => {
     return;
   }
 
-  const submissions = await sheets.getAllSubmissions().catch((e) => {
-    console.error('[管理员] 读取全部素材失败:', e.message);
-    return null;
-  });
+  const [submissions, groupPhotos] = await Promise.all([
+    sheets.getAllSubmissions().catch((e) => {
+      console.error('[管理员] 读取投稿失败:', e.message);
+      return null;
+    }),
+    groupPhotoSheets.getAllGroupPhotos().catch((e) => {
+      console.error('[管理员] 读取合照失败:', e.message);
+      return null;
+    }),
+  ]);
 
-  if (submissions === null) {
+  if (submissions === null && groupPhotos === null) {
     await ctx.reply('读取失败，稍后再试。', withMainMenu());
     return;
   }
-  if (submissions.length === 0) {
+
+  const safeSubmissions = submissions || [];
+  const safeGroupPhotos = groupPhotos || [];
+
+  if (safeSubmissions.length === 0 && safeGroupPhotos.length === 0) {
     await ctx.reply('目前还没有任何投稿。', withMainMenu());
     return;
   }
 
-  await ctx.reply(`全部投稿共 ${submissions.length} 条，马上送上：`);
+  await ctx.reply(
+    `全部素材共 ${safeSubmissions.length + safeGroupPhotos.length} 条（猎物 ${safeSubmissions.length} / 合照 ${safeGroupPhotos.length}），马上送上：`
+  );
 
   let failCount = 0;
-  for (const sub of submissions) {
+
+  for (const sub of safeSubmissions) {
     try {
       if (!sub.id || !sub.photoFileId) {
         throw new Error('这条数据缺少id或file_id，跳过（可能是空行或示例行没删）');
       }
       const caption = [
-        `#${sub.id.slice(0, 8)}（${sub.source || '未知'}）`,
+        `🎯 猎物 #${sub.id.slice(0, 8)}（${sub.source || '未知'}）`,
         `名字：${sub.name} / 年龄：${sub.age}`,
         sub.tag ? `介绍：${sub.tag}` : null,
         `提交者：user ${sub.userId}${sub.username ? ' @' + sub.username : ''}`,
@@ -285,7 +298,30 @@ bot.hears('/全部素材', async (ctx) => {
       }
     } catch (e) {
       failCount++;
-      console.error(`[管理员] 素材 ${sub?.id || '(无id)'} 发送失败: ${e.message}`);
+      console.error(`[管理员] 猎物 ${sub?.id || '(无id)'} 发送失败: ${e.message}`);
+    }
+  }
+
+  for (const photo of safeGroupPhotos) {
+    try {
+      if (!photo.id || !photo.photoFileId) {
+        throw new Error('这条数据缺少id或file_id，跳过');
+      }
+      const caption = [
+        `📷 合照 #${photo.id.slice(0, 8)}`,
+        `提交者：user ${photo.userId}${photo.username ? ' @' + photo.username : ''}`,
+        `已发布：${photo.posted ? '是' : '否'}`,
+        `file_id：${photo.photoFileId}`,
+      ].join('\n');
+
+      if (photo.mediaType === 'video') {
+        await ctx.telegram.sendVideo(ctx.from.id, photo.photoFileId, { caption });
+      } else {
+        await ctx.telegram.sendPhoto(ctx.from.id, photo.photoFileId, { caption });
+      }
+    } catch (e) {
+      failCount++;
+      console.error(`[管理员] 合照 ${photo?.id || '(无id)'} 发送失败: ${e.message}`);
     }
   }
 
