@@ -23,7 +23,8 @@ const groupPhotoWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   // Step 1: 接收照片并直接提交
-  async (ctx) => {
+  async (ctx, next) => {
+    if (ctx.callbackQuery) return next(); // 放行给全局（如取消）
     if (await checkCancel(ctx)) return;
 
     if (!ctx.message?.photo) {
