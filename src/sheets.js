@@ -70,7 +70,7 @@ async function getPendingSubmissions() {
       posted: row[10] === 'TRUE',
       mediaType: row[12] || 'photo',
     }))
-    .filter((s) => !s.posted);
+    .filter((s) => s.id && !s.posted);
 }
 
 async function markPosted(rowNumber) {
@@ -118,6 +118,7 @@ async function getAllSubmissions() {
   const rows = res.data.values || [];
   const [, ...data] = rows;
   return data
+    .filter((row) => row[0]) // 过滤掉没有id的空行/坏数据
     .map((row) => ({
       id: row[0],
       userId: row[1],

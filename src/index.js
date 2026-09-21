@@ -263,18 +263,21 @@ bot.hears('/全部素材', async (ctx) => {
 
   let failCount = 0;
   for (const sub of submissions) {
-    const caption = [
-      `#${sub.id.slice(0, 8)}（${sub.source}）`,
-      `名字：${sub.name} / 年龄：${sub.age}`,
-      sub.tag ? `介绍：${sub.tag}` : null,
-      `提交者：user ${sub.userId}${sub.username ? ' @' + sub.username : ''}`,
-      `已发布：${sub.posted ? '是' : '否'} / 优先池：${sub.isPriority ? '是' : '否'}`,
-      `file_id：${sub.photoFileId}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
     try {
+      if (!sub.id || !sub.photoFileId) {
+        throw new Error('这条数据缺少id或file_id，跳过（可能是空行或示例行没删）');
+      }
+      const caption = [
+        `#${sub.id.slice(0, 8)}（${sub.source || '未知'}）`,
+        `名字：${sub.name} / 年龄：${sub.age}`,
+        sub.tag ? `介绍：${sub.tag}` : null,
+        `提交者：user ${sub.userId}${sub.username ? ' @' + sub.username : ''}`,
+        `已发布：${sub.posted ? '是' : '否'} / 优先池：${sub.isPriority ? '是' : '否'}`,
+        `file_id：${sub.photoFileId}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
       if (sub.mediaType === 'video') {
         await ctx.telegram.sendVideo(ctx.from.id, sub.photoFileId, { caption });
       } else {
@@ -282,7 +285,7 @@ bot.hears('/全部素材', async (ctx) => {
       }
     } catch (e) {
       failCount++;
-      console.error(`[管理员] 素材 ${sub.id} 发送失败: ${e.message}`);
+      console.error(`[管理员] 素材 ${sub?.id || '(无id)'} 发送失败: ${e.message}`);
     }
   }
 
