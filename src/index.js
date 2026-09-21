@@ -219,6 +219,44 @@ bot.on('text', async (ctx, next) => {
   return next();
 });
 
+// ---- 兜底：私聊里在没有进入任何流程时直接发照片过来 ----
+// （比如用户看到"开始投稿"提示但没点按钮，直接把照片甩过来）
+bot.on('photo', async (ctx, next) => {
+  if (ctx.chat.type === 'private' && !ctx.scene?.current) {
+    console.log(`[兜底] user ${ctx.from.id} 未进入流程直接发图，引导继续`);
+    await ctx.reply(
+      '看起来你想投稿？先选一个入口，我才能收下这张照片～',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('📸 我要投稿', 'start_submission')],
+        [Markup.button.callback('👀 身边人投稿', 'start_submission_secret')],
+        [Markup.button.callback('📷 合照专区', 'start_group_photo')],
+      ])
+    );
+    return;
+  }
+  return next();
+});
+
+// ---- 兜底：私聊里在没有进入任何流程时随便打字，给个方向而不是沉默 ----
+bot.on('text', async (ctx, next) => {
+  if (
+    ctx.chat.type === 'private' &&
+    !ctx.scene?.current &&
+    !ctx.message.text.startsWith('/')
+  ) {
+    await ctx.reply(
+      '想投稿的话，点下面任一按钮开始～',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('📸 我要投稿', 'start_submission')],
+        [Markup.button.callback('👀 身边人投稿', 'start_submission_secret')],
+        [Markup.button.callback('📷 合照专区', 'start_group_photo')],
+      ])
+    );
+    return;
+  }
+  return next();
+});
+
 // ---- 群组消息：反spam + 新成员追踪 ----
 bot.on('new_chat_members', antispam.trackNewMember);
 bot.on('message', antispam.handleGroupMessage);
