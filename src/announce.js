@@ -4,6 +4,13 @@ const sheets = require('./sheets');
 const groupPhotoSheets = require('./groupPhotoSheets');
 const store = require('./store');
 
+function sendByType(bot, chatId, mediaType, fileId, options) {
+  if (mediaType === 'video') {
+    return bot.telegram.sendVideo(chatId, fileId, options);
+  }
+  return bot.telegram.sendPhoto(chatId, fileId, options);
+}
+
 async function sendHourlySettlement(bot) {
   const groupChatId = process.env.GROUP_CHAT_ID;
 
@@ -41,7 +48,7 @@ async function sendHourlySettlement(bot) {
     const interestCount = store.getInterestCount(sub.id);
 
     try {
-      await bot.telegram.sendPhoto(groupChatId, sub.photoFileId, {
+      await sendByType(bot, groupChatId, sub.mediaType, sub.photoFileId, {
         caption,
         ...Markup.inlineKeyboard([
           [
@@ -62,7 +69,7 @@ async function sendHourlySettlement(bot) {
   );
   for (const photo of orderedPhotos) {
     try {
-      await bot.telegram.sendPhoto(groupChatId, photo.photoFileId, {
+      await sendByType(bot, groupChatId, photo.mediaType, photo.photoFileId, {
         caption: '📷 合照专区',
       });
       await groupPhotoSheets.markGroupPhotoPosted(photo.rowNumber);
@@ -71,7 +78,7 @@ async function sendHourlySettlement(bot) {
     }
   }
 
-  const botInfo = await bot.telegram.getMe();
+  const groupInviteLink = process.env.GROUP_INVITE_LINK;
   await bot.telegram.sendMessage(
     groupChatId,
     [
@@ -83,7 +90,7 @@ async function sendHourlySettlement(bot) {
       '🔗 我的邀请链接 —— 拉朋友进来，你的投稿会被优先展示',
     ].join('\n'),
     Markup.inlineKeyboard([
-      [Markup.button.url('🎯 成为射手', `https://t.me/${botInfo.username}`)],
+      [Markup.button.url('🎯 成为射手', groupInviteLink)],
       [Markup.button.callback('📸 投稿猎物', 'start_submission')],
       [Markup.button.callback('📷 合照专区', 'start_group_photo')],
       [Markup.button.callback('🔗 我的邀请链接', 'get_invite_link')],
@@ -91,7 +98,7 @@ async function sendHourlySettlement(bot) {
   );
 
   console.log(
-    `[整点结算] 发布猎物${ordered.length}条，合照${orderedPhotos.length}张。`
+    `[整点结算] 发布猎物${ordered.length}条，合照${orderedPhotos.length}份。`
   );
 }
 

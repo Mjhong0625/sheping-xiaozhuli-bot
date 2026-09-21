@@ -16,13 +16,13 @@ function getSheetsClient() {
   return google.sheets({ version: 'v4', auth: getAuth() });
 }
 
-// GroupPhotos 表结构: A id | B userId | C username | D photoFileId | E submittedAt | F posted | G postedAt
+// GroupPhotos 表结构: A id | B userId | C username | D photoFileId | E submittedAt | F posted | G postedAt | H mediaType
 
 async function appendGroupPhoto(photo) {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: `${TAB}!A:G`,
+    range: `${TAB}!A:H`,
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -33,6 +33,7 @@ async function appendGroupPhoto(photo) {
         photo.submittedAt,
         'FALSE',
         '',
+        photo.mediaType || 'photo',
       ]],
     },
   });
@@ -42,7 +43,7 @@ async function getPendingGroupPhotos() {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${TAB}!A:G`,
+    range: `${TAB}!A:H`,
   });
   const rows = res.data.values || [];
   const [, ...data] = rows;
@@ -55,6 +56,7 @@ async function getPendingGroupPhotos() {
       photoFileId: row[3],
       submittedAt: row[4],
       posted: row[5] === 'TRUE',
+      mediaType: row[7] || 'photo',
     }))
     .filter((p) => !p.posted);
 }
@@ -74,7 +76,7 @@ async function getAllGroupPhotos() {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${TAB}!A:G`,
+    range: `${TAB}!A:H`,
   });
   const rows = res.data.values || [];
   const [, ...data] = rows;
@@ -85,6 +87,7 @@ async function getAllGroupPhotos() {
       username: row[2],
       photoFileId: row[3],
       submittedAt: row[4],
+      mediaType: row[7] || 'photo',
     }))
     .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
 }

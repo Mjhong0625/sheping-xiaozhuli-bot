@@ -11,7 +11,7 @@ const { submissionWizard, handleSubmitConfirm, handleSubmitRestart } = require('
 const { groupPhotoWizard } = require('./groupPhotoFlow');
 const { scheduleHourlySettlement } = require('./announce');
 const { scheduleTimeoutCheck } = require('./timeout');
-const { isCancelText, replyCancelled } = require('./flowHelpers');
+const { isCancelText, replyCancelled, withMainMenu } = require('./flowHelpers');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -43,11 +43,7 @@ bot.command('cancel', async (ctx) => {
 });
 
 // ---- 私聊 /start ----
-bot.start(async (ctx) => {
-  if (ctx.chat.type !== 'private') return;
-
-  await invite.handleStartPayload(ctx);
-
+async function sendStartMenu(ctx) {
   await ctx.reply(
     [
       '欢迎来到射屏小助理 🎯',
@@ -63,8 +59,21 @@ bot.start(async (ctx) => {
       [Markup.button.callback('📷 合照专区', 'start_group_photo')],
       [Markup.button.callback('🖼 查看合照墙', 'view_photo_wall')],
       [Markup.button.callback('🔗 我的邀请链接', 'get_invite_link')],
+      [Markup.button.url('🎯 成为射手（加入群组）', process.env.GROUP_INVITE_LINK)],
     ])
   );
+}
+
+bot.start(async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  await invite.handleStartPayload(ctx);
+  await sendStartMenu(ctx);
+});
+
+// ---- 返回主菜单按钮（贴在所有流程终点） ----
+bot.action('main_menu', async (ctx) => {
+  await ctx.answerCbQuery();
+  await sendStartMenu(ctx);
 });
 
 // ---- 投稿入口 ----
@@ -122,25 +131,49 @@ bot.command('合照墙', async (ctx) => {
 });
 
 async function sendPhotoWall(ctx) {
-  const photos = await groupPhotoSheets.getAllGroupPhotos().catch(() => []);
-  if (photos.length === 0) {
-    await ctx.reply('合照墙目前还没有内容，快去投稿第一张吧。');
+  const photos = await groupPhotoSheets.getAllGroupPhotos().catch((e) => {
+    console.error('[合照墙] 读取Sheet失败:', e.message);
+    return null;
+  });
+
+  if (photos === null) {
+    await ctx.reply('合照墙暂时读取不到，稍后再试一次。', withMainMenu());
     return;
   }
-  await ctx.reply(`合照墙 🖼 目前共有 ${photos.length} 张合照，馬上送上：`);
+  if (photos.length === 0) {
+    await ctx.reply('合照墙目前还没有内容，快去投稿第一张吧。', withMainMenu());
+    return;
+  }
+
+  await ctx.reply(`合照墙 🖼 目前共有 ${photos.length} 张，马上送上：`);
   for (let i = 0; i < photos.length; i += 10) {
-    const batch = photos.slice(i, i + 10).map((p) => ({
-      type: 'photo',
-      media: p.photoFileId,
-    }));
+    const batch = photos.slice(i, i + 10);
     try {
-      await ctx.telegram.sendMediaGroup(ctx.from.id, batch);
+      if (batch.length === 1) {
+        // Telegram sendMediaGroup 至少要2项，单张改用单独发送
+        const p = batch[0];
+        if (p.mediaType === 'video') {
+          await ctx.telegram.sendVideo(ctx.from.id, p.photoFileId);
+        } else {
+          await ctx.telegram.sendPhoto(ctx.from.id, p.photoFileId);
+        }
+      } else {
+        const media = batch.map((p) => ({
+          type: p.mediaType === 'video' ? 'video' : 'photo',
+          media: p.photoFileId,
+        }));
+        await ctx.telegram.sendMediaGroup(ctx.from.id, media);
+      }
     } catch (e) {
-      console.error('发送合照墙失败:', e.message);
-      await ctx.reply('请先私聊我一次（点 Start），我才能把合照墙发给你哦。');
+      console.error('[合照墙] 发送失败:', e.message);
+      await ctx.reply(
+        `合照墙有一批发送失败了（${e.message}），可能是某张素材已失效，联系管理员看一下。`,
+        withMainMenu()
+      );
       return;
     }
   }
+  await ctx.reply('合照墙看完啦～', withMainMenu());
 }
 
 // ---- 邀请链接 ----
@@ -155,7 +188,8 @@ bot.action('get_invite_link', async (ctx) => {
       '',
       '拉到的朋友只要通过这条链接加入，',
       '你之后投稿的猎物就会被优先安排发布。',
-    ].join('\n')
+    ].join('\n'),
+    withMainMenu()
   );
 });
 
@@ -200,9 +234,16 @@ bot.action(/detail_(.+)/, async (ctx) => {
   lines.push('', '想认识更多猎物？加入射手群一起看。');
 
   try {
-    await ctx.telegram.sendPhoto(ctx.from.id, sub.photoFileId, {
-      caption: lines.join('\n'),
-    });
+    if (sub.mediaType === 'video') {
+      await ctx.telegram.sendVideo(ctx.from.id, sub.photoFileId, {
+        caption: lines.join('\n'),
+      });
+    } else {
+      await ctx.telegram.sendPhoto(ctx.from.id, sub.photoFileId, {
+        caption: lines.join('\n'),
+      });
+    }
+    await ctx.telegram.sendMessage(ctx.from.id, '还想看点别的？', withMainMenu());
   } catch (e) {
     // 用户没有先私聊过bot，无法主动发消息
     await ctx.reply('请先私聊我一次（点 Start），我才能把详情发给你哦。');

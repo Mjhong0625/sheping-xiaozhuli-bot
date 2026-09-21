@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const { Markup } = require('telegraf');
 const { map: sessionMap } = require('./sessionStore');
 
 const TIMEOUT_MS = 15 * 60 * 1000; // 15分钟无响应视为超时
@@ -17,7 +18,10 @@ function scheduleTimeoutCheck(bot) {
         try {
           await bot.telegram.sendMessage(
             chatId,
-            '投稿已超时，如需继续请重新 /start。'
+            '投稿已超时，如需继续请点下面按钮重新开始。',
+            Markup.inlineKeyboard([
+              [Markup.button.callback('🏠 返回主菜单', 'main_menu')],
+            ])
           );
           console.log(`[超时] user ${userId} 投稿流程超时自动退出`);
         } catch (e) {
