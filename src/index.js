@@ -13,6 +13,17 @@ const { scheduleHourlySettlement } = require('./announce');
 const { scheduleTimeoutCheck } = require('./timeout');
 const { isCancelText, replyCancelled, withMainMenu } = require('./flowHelpers');
 
+// ---- 管理员权限（按username判断，@cloudnine111），逗号分隔可加多个 ----
+const ADMIN_USERNAMES = (process.env.ADMIN_USERNAMES || '')
+  .split(',')
+  .map((u) => u.trim().toLowerCase().replace(/^@/, ''))
+  .filter(Boolean);
+
+function isAdmin(ctx) {
+  const username = (ctx.from?.username || '').toLowerCase();
+  return username && ADMIN_USERNAMES.includes(username);
+}
+
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const stage = new Scenes.Stage([submissionWizard, groupPhotoWizard]);
@@ -30,6 +41,23 @@ bot.use(stage.middleware());
 bot.use((ctx, next) => {
   if (ctx.session && ctx.session.__scenes) {
     ctx.session.__scenes.lastActivityAt = Date.now();
+  }
+  return next();
+});
+
+// ---- 私聊对话记录（方便运营排查用户实际在跟bot说什么） ----
+bot.use((ctx, next) => {
+  if (ctx.chat?.type === 'private' && ctx.message) {
+    const m = ctx.message;
+    let preview;
+    if (m.text) preview = m.text;
+    else if (m.photo) preview = '[图片]';
+    else if (m.video) preview = '[视频]';
+    else if (m.document) preview = `[文件:${m.document.mime_type || '未知类型'}]`;
+    else preview = '[其他类型消息]';
+    console.log(
+      `[私聊记录] user ${ctx.from.id}(@${ctx.from.username || '-'}): ${preview}`
+    );
   }
   return next();
 });
@@ -67,6 +95,46 @@ async function sendStartMenu(ctx) {
 bot.start(async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await invite.handleStartPayload(ctx);
+
+  // 群里通告按钮跳转过来的深链接（?start=sub_normal 等），直接帮用户进对应流程
+  const payload = ctx.startPayload;
+  if (payload === 'sub_normal') {
+    console.log(`[投稿] user ${ctx.from.id} 经群按钮进入投稿流程 (normal)`);
+    await ctx.scene.enter('submission-wizard', { source: 'normal' });
+    return;
+  }
+  if (payload === 'sub_secret') {
+    await ctx.reply(
+      [
+        '隐秘的投稿身边人？让她悄悄参与？ 👀',
+        '',
+        '放心，这里不会有人知道是谁投的，',
+        '只需要一张照片，和你眼中她的样子。',
+      ].join('\n'),
+      Markup.inlineKeyboard([[Markup.button.callback('📸 开始投稿', 'confirm_secret_start')]])
+    );
+    return;
+  }
+  if (payload === 'group_photo') {
+    console.log(`[合照投稿] user ${ctx.from.id} 经群按钮进入合照专区流程`);
+    await ctx.scene.enter('group-photo-wizard');
+    return;
+  }
+  if (payload === 'invite') {
+    const link = invite.buildInviteLink(process.env.BOT_USERNAME, ctx.from.id);
+    await ctx.reply(
+      [
+        '这是你的专属链接：',
+        link,
+        '',
+        '拉到的朋友只要通过这条链接加入，',
+        '你之后投稿的猎物就会被优先安排发布。',
+      ].join('\n'),
+      withMainMenu()
+    );
+    return;
+  }
+
   await sendStartMenu(ctx);
 });
 
@@ -146,35 +214,84 @@ async function sendPhotoWall(ctx) {
   }
 
   await ctx.reply(`合照墙 🖼 目前共有 ${photos.length} 张，马上送上：`);
-  for (let i = 0; i < photos.length; i += 10) {
-    const batch = photos.slice(i, i + 10);
+
+  let failCount = 0;
+  for (const p of photos) {
     try {
-      if (batch.length === 1) {
-        // Telegram sendMediaGroup 至少要2项，单张改用单独发送
-        const p = batch[0];
-        if (p.mediaType === 'video') {
-          await ctx.telegram.sendVideo(ctx.from.id, p.photoFileId);
-        } else {
-          await ctx.telegram.sendPhoto(ctx.from.id, p.photoFileId);
-        }
+      if (p.mediaType === 'video') {
+        await ctx.telegram.sendVideo(ctx.from.id, p.photoFileId);
       } else {
-        const media = batch.map((p) => ({
-          type: p.mediaType === 'video' ? 'video' : 'photo',
-          media: p.photoFileId,
-        }));
-        await ctx.telegram.sendMediaGroup(ctx.from.id, media);
+        await ctx.telegram.sendPhoto(ctx.from.id, p.photoFileId);
       }
     } catch (e) {
-      console.error('[合照墙] 发送失败:', e.message);
-      await ctx.reply(
-        `合照墙有一批发送失败了（${e.message}），可能是某张素材已失效，联系管理员看一下。`,
-        withMainMenu()
-      );
-      return;
+      failCount++;
+      console.error(`[合照墙] 素材 ${p.id} 发送失败（file_id可能已失效): ${e.message}`);
+      // 单条失败不影响其余继续发送
     }
   }
-  await ctx.reply('合照墙看完啦～', withMainMenu());
+
+  const summary =
+    failCount > 0
+      ? `合照墙看完啦，其中 ${failCount} 张素材发送失败（可能已失效），已记录到日志。`
+      : '合照墙看完啦～';
+  await ctx.reply(summary, withMainMenu());
 }
+
+// ---- 管理员专属：查看全部投稿原图/视频 + file_id ----
+bot.command('全部素材', async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  if (!isAdmin(ctx)) {
+    await ctx.reply('这个指令只有管理员能用。');
+    return;
+  }
+
+  const submissions = await sheets.getAllSubmissions().catch((e) => {
+    console.error('[管理员] 读取全部素材失败:', e.message);
+    return null;
+  });
+
+  if (submissions === null) {
+    await ctx.reply('读取失败，稍后再试。', withMainMenu());
+    return;
+  }
+  if (submissions.length === 0) {
+    await ctx.reply('目前还没有任何投稿。', withMainMenu());
+    return;
+  }
+
+  await ctx.reply(`全部投稿共 ${submissions.length} 条，马上送上：`);
+
+  let failCount = 0;
+  for (const sub of submissions) {
+    const caption = [
+      `#${sub.id.slice(0, 8)}（${sub.source}）`,
+      `名字：${sub.name} / 年龄：${sub.age}`,
+      sub.tag ? `介绍：${sub.tag}` : null,
+      `提交者：user ${sub.userId}${sub.username ? ' @' + sub.username : ''}`,
+      `已发布：${sub.posted ? '是' : '否'} / 优先池：${sub.isPriority ? '是' : '否'}`,
+      `file_id：${sub.photoFileId}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      if (sub.mediaType === 'video') {
+        await ctx.telegram.sendVideo(ctx.from.id, sub.photoFileId, { caption });
+      } else {
+        await ctx.telegram.sendPhoto(ctx.from.id, sub.photoFileId, { caption });
+      }
+    } catch (e) {
+      failCount++;
+      console.error(`[管理员] 素材 ${sub.id} 发送失败: ${e.message}`);
+    }
+  }
+
+  const summary =
+    failCount > 0
+      ? `全部素材看完了，其中 ${failCount} 条发送失败（file_id可能已失效）。`
+      : '全部素材看完了。';
+  await ctx.reply(summary, withMainMenu());
+});
 
 // ---- 邀请链接 ----
 bot.action('get_invite_link', async (ctx) => {

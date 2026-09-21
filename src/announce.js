@@ -3,6 +3,7 @@ const { Markup } = require('telegraf');
 const sheets = require('./sheets');
 const groupPhotoSheets = require('./groupPhotoSheets');
 const store = require('./store');
+const { scheduleAutoDelete } = require('./flowHelpers');
 
 function sendByType(bot, chatId, mediaType, fileId, options) {
   if (mediaType === 'video') {
@@ -11,8 +12,16 @@ function sendByType(bot, chatId, mediaType, fileId, options) {
   return bot.telegram.sendPhoto(chatId, fileId, options);
 }
 
+// 群里发的所有消息都在一段时间后自动消失（私聊不受影响，这里只用于群chatId）
+async function sendGroupThenAutoDelete(bot, sendFn) {
+  const msg = await sendFn();
+  scheduleAutoDelete(bot.telegram, msg.chat.id, msg.message_id);
+  return msg;
+}
+
 async function sendHourlySettlement(bot) {
   const groupChatId = process.env.GROUP_CHAT_ID;
+  const botUsername = process.env.BOT_USERNAME;
 
   const [submissions, groupPhotos] = await Promise.all([
     sheets.getPendingSubmissions(),
@@ -24,9 +33,8 @@ async function sendHourlySettlement(bot) {
     return;
   }
 
-  await bot.telegram.sendMessage(
-    groupChatId,
-    '整点报到，以下是过去一小时的新猎物 🎯'
+  await sendGroupThenAutoDelete(bot, () =>
+    bot.telegram.sendMessage(groupChatId, '整点报到，以下是过去一小时的新猎物 🎯')
   );
 
   // 优先池（isPriority）先到先得排最前，其余按提交时间接着排
@@ -48,15 +56,17 @@ async function sendHourlySettlement(bot) {
     const interestCount = store.getInterestCount(sub.id);
 
     try {
-      await sendByType(bot, groupChatId, sub.mediaType, sub.photoFileId, {
-        caption,
-        ...Markup.inlineKeyboard([
-          [
-            Markup.button.callback(`🔥 感兴趣 (${interestCount})`, `interest_${sub.id}`),
-            Markup.button.callback('👁 查看详情', `detail_${sub.id}`),
-          ],
-        ]),
-      });
+      await sendGroupThenAutoDelete(bot, () =>
+        sendByType(bot, groupChatId, sub.mediaType, sub.photoFileId, {
+          caption,
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback(`🔥 感兴趣 (${interestCount})`, `interest_${sub.id}`),
+              Markup.button.callback('👁 查看详情', `detail_${sub.id}`),
+            ],
+          ]),
+        })
+      );
       await sheets.markPosted(sub.rowNumber);
     } catch (e) {
       console.error(`发送猎物 #${sub.id} 失败:`, e.message);
@@ -69,32 +79,37 @@ async function sendHourlySettlement(bot) {
   );
   for (const photo of orderedPhotos) {
     try {
-      await sendByType(bot, groupChatId, photo.mediaType, photo.photoFileId, {
-        caption: '📷 合照专区',
-      });
+      await sendGroupThenAutoDelete(bot, () =>
+        sendByType(bot, groupChatId, photo.mediaType, photo.photoFileId, {
+          caption: '📷 合照专区',
+        })
+      );
       await groupPhotoSheets.markGroupPhotoPosted(photo.rowNumber);
     } catch (e) {
       console.error(`发送合照 #${photo.id} 失败:`, e.message);
     }
   }
 
+  // 群里点击这几个按钮要跳转去私聊bot，不能在群里直接触发流程
   const groupInviteLink = process.env.GROUP_INVITE_LINK;
-  await bot.telegram.sendMessage(
-    groupChatId,
-    [
-      '这批就这些了，想第一时间看到更多？',
-      '',
-      '🎯 成为射手 —— 加入群组',
-      '📸 投稿猎物 —— 分享你发现的画面',
-      '📷 合照专区 —— 上传射手合照',
-      '🔗 我的邀请链接 —— 拉朋友进来，你的投稿会被优先展示',
-    ].join('\n'),
-    Markup.inlineKeyboard([
-      [Markup.button.url('🎯 成为射手', groupInviteLink)],
-      [Markup.button.callback('📸 投稿猎物', 'start_submission')],
-      [Markup.button.callback('📷 合照专区', 'start_group_photo')],
-      [Markup.button.callback('🔗 我的邀请链接', 'get_invite_link')],
-    ])
+  await sendGroupThenAutoDelete(bot, () =>
+    bot.telegram.sendMessage(
+      groupChatId,
+      [
+        '这批就这些了，想第一时间看到更多？',
+        '',
+        '🎯 成为射手 —— 加入群组',
+        '📸 投稿猎物 —— 分享你发现的画面',
+        '📷 合照专区 —— 上传射手合照',
+        '🔗 我的邀请链接 —— 拉朋友进来，你的投稿会被优先展示',
+      ].join('\n'),
+      Markup.inlineKeyboard([
+        [Markup.button.url('🎯 成为射手', groupInviteLink)],
+        [Markup.button.url('📸 投稿猎物', `https://t.me/${botUsername}?start=sub_normal`)],
+        [Markup.button.url('📷 合照专区', `https://t.me/${botUsername}?start=group_photo`)],
+        [Markup.button.url('🔗 我的邀请链接', `https://t.me/${botUsername}?start=invite`)],
+      ])
+    )
   );
 
   console.log(

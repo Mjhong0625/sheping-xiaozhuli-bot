@@ -108,6 +108,33 @@ async function getSubmissionById(id) {
   };
 }
 
+// 管理员用：取全部投稿（不分是否已发布），供 /全部素材 指令查看
+async function getAllSubmissions() {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SUBMISSIONS_TAB}!A:M`,
+  });
+  const rows = res.data.values || [];
+  const [, ...data] = rows;
+  return data
+    .map((row) => ({
+      id: row[0],
+      userId: row[1],
+      username: row[2],
+      source: row[3],
+      photoFileId: row[4],
+      name: row[5],
+      age: row[6],
+      tag: row[7],
+      submittedAt: row[8],
+      isPriority: row[9] === 'TRUE',
+      posted: row[10] === 'TRUE',
+      mediaType: row[12] || 'photo',
+    }))
+    .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
+}
+
 // Invites 表结构: A inviterId | B inviterUsername | C invitedUserId | D invitedAt
 
 async function recordInvite(inviterId, inviterUsername, invitedUserId) {
@@ -136,6 +163,7 @@ module.exports = {
   appendSubmission,
   getPendingSubmissions,
   getSubmissionById,
+  getAllSubmissions,
   markPosted,
   recordInvite,
   hasInvited,

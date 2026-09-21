@@ -25,6 +25,7 @@ async function replyCancelled(ctx) {
 }
 
 // 从消息里提取图片或视频的 file_id + 类型，取不到返回 null
+// 兼容以"文件"形式发送的视频（比如部分手机把MOV当document传），靠 mime_type 判断
 function extractMedia(message) {
   if (!message) return null;
   if (message.photo) {
@@ -33,6 +34,15 @@ function extractMedia(message) {
   }
   if (message.video) {
     return { fileId: message.video.file_id, type: 'video' };
+  }
+  if (message.document) {
+    const mime = message.document.mime_type || '';
+    if (mime.startsWith('video/')) {
+      return { fileId: message.document.file_id, type: 'video' };
+    }
+    if (mime.startsWith('image/')) {
+      return { fileId: message.document.file_id, type: 'photo' };
+    }
   }
   return null;
 }
@@ -45,6 +55,17 @@ async function sendMediaByType(ctx, mediaType, fileId, options) {
   return ctx.replyWithPhoto(fileId, options);
 }
 
+// 群消息自动消失：发送后过一段时间自动删除（私聊不受影响，因为只在群里调用）
+const GROUP_MESSAGE_TTL_MS = (parseInt(process.env.GROUP_MESSAGE_TTL_SECONDS || '30', 10)) * 1000;
+
+function scheduleAutoDelete(telegram, chatId, messageId, ms = GROUP_MESSAGE_TTL_MS) {
+  setTimeout(() => {
+    telegram.deleteMessage(chatId, messageId).catch(() => {
+      // 消息可能已经被手动删除，忽略
+    });
+  }, ms);
+}
+
 module.exports = {
   CANCEL_KEYBOARD,
   MAIN_MENU_ROW,
@@ -54,4 +75,6 @@ module.exports = {
   replyCancelled,
   extractMedia,
   sendMediaByType,
+  scheduleAutoDelete,
+  GROUP_MESSAGE_TTL_MS,
 };

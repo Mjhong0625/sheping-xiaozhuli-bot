@@ -1,4 +1,5 @@
 const store = require('./store');
+const { scheduleAutoDelete } = require('./flowHelpers');
 
 const FLOOD_LIMIT = parseInt(process.env.FLOOD_MESSAGE_LIMIT || '5', 10);
 const FLOOD_WINDOW = parseInt(process.env.FLOOD_WINDOW_SECONDS || '10', 10);
@@ -52,9 +53,10 @@ async function handleGroupMessage(ctx, next) {
         until_date: Math.floor(Date.now() / 1000) + 60, // 临时封禁60秒=等效踢出，可再加入
       });
       await ctx.telegram.unbanChatMember(ctx.chat.id, userId); // 解除封禁，允许之后重新加入
-      await ctx.reply('⚠️ 检测到异常消息，已自动处理。', {
+      const warning = await ctx.reply('⚠️ 检测到异常消息，已自动处理。', {
         reply_to_message_id: undefined,
       });
+      scheduleAutoDelete(ctx.telegram, ctx.chat.id, warning.message_id);
       console.log(
         `[反spam] 群消息删除 - user ${userId} - 原因:${violation} - 原文:"${originalText}"`
       );
