@@ -194,7 +194,7 @@ bot.action('view_photo_wall', async (ctx) => {
   await ctx.answerCbQuery();
   await sendPhotoWall(ctx);
 });
-bot.command('合照墙', async (ctx) => {
+bot.hears('/合照墙', async (ctx) => {
   await sendPhotoWall(ctx);
 });
 
@@ -238,7 +238,7 @@ async function sendPhotoWall(ctx) {
 }
 
 // ---- 管理员专属：查看全部投稿原图/视频 + file_id ----
-bot.command('全部素材', async (ctx) => {
+bot.hears('/全部素材', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   if (!isAdmin(ctx)) {
     await ctx.reply('这个指令只有管理员能用。');
