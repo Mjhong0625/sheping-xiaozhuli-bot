@@ -24,6 +24,13 @@ async function replyCancelled(ctx) {
   await ctx.reply('已取消，如果之后想投稿，随时点下面按钮。', withMainMenu());
 }
 
+// 锁死：这些功能只能在私聊触发。群里点击一律弹原生弹窗提示，不在群里发新消息、不进流程。
+async function requirePrivateAction(ctx) {
+  if (ctx.chat?.type === 'private') return true;
+  await ctx.answerCbQuery('请私聊我使用这个功能哦～', { show_alert: true });
+  return false;
+}
+
 // 从消息里提取图片或视频的 file_id + 类型，取不到返回 null
 // 兼容以"文件"形式发送的视频（比如部分手机把MOV当document传），靠 mime_type 判断
 function extractMedia(message) {
@@ -73,6 +80,7 @@ module.exports = {
   withMainMenu,
   isCancelText,
   replyCancelled,
+  requirePrivateAction,
   extractMedia,
   sendMediaByType,
   scheduleAutoDelete,

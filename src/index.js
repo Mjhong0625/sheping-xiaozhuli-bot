@@ -12,7 +12,12 @@ const { submissionWizard, handleSubmitConfirm, handleSubmitRestart } = require('
 const { groupPhotoWizard } = require('./groupPhotoFlow');
 const { scheduleHourlySettlement } = require('./announce');
 const { scheduleTimeoutCheck } = require('./timeout');
-const { isCancelText, replyCancelled, withMainMenu } = require('./flowHelpers');
+const {
+  isCancelText,
+  replyCancelled,
+  withMainMenu,
+  requirePrivateAction,
+} = require('./flowHelpers');
 
 // ---- 管理员权限（按username判断，@cloudnine111），逗号分隔可加多个 ----
 const ADMIN_USERNAMES = (process.env.ADMIN_USERNAMES || '')
@@ -149,18 +154,21 @@ bot.start(async (ctx) => {
 
 // ---- 返回主菜单按钮（贴在所有流程终点） ----
 bot.action('main_menu', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   await sendStartMenu(ctx);
 });
 
 // ---- 投稿入口 ----
 bot.action('start_submission', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   console.log(`[投稿] user ${ctx.from.id} 进入投稿流程 (normal)`);
   await ctx.scene.enter('submission-wizard', { source: 'normal' });
 });
 
 bot.action('start_submission_secret', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   await ctx.reply(
     [
@@ -174,6 +182,7 @@ bot.action('start_submission_secret', async (ctx) => {
 });
 
 bot.action('confirm_secret_start', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   console.log(`[投稿] user ${ctx.from.id} 进入投稿流程 (secret)`);
   await ctx.scene.enter('submission-wizard', { source: 'secret' });
@@ -184,6 +193,7 @@ bot.action('submit_restart', handleSubmitRestart);
 
 // ---- 合照专区入口 ----
 bot.action('start_group_photo', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   console.log(`[合照投稿] user ${ctx.from.id} 进入合照专区流程`);
   await ctx.scene.enter('group-photo-wizard');
@@ -191,6 +201,7 @@ bot.action('start_group_photo', async (ctx) => {
 
 // ---- 全局取消按钮（适用于两个 wizard） ----
 bot.action('cancel_flow', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   if (ctx.scene?.current) {
     await ctx.scene.leave();
@@ -200,10 +211,12 @@ bot.action('cancel_flow', async (ctx) => {
 
 // ---- 合照墙：私聊查看所有合照 ----
 bot.action('view_photo_wall', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   await sendPhotoWall(ctx);
 });
 bot.hears('/合照墙', async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
   await sendPhotoWall(ctx);
 });
 
@@ -343,6 +356,7 @@ bot.hears('/全部素材', async (ctx) => {
 
 // ---- 邀请链接 ----
 bot.action('get_invite_link', async (ctx) => {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   const botInfo = await ctx.telegram.getMe();
   const link = invite.buildInviteLink(botInfo.username, ctx.from.id);

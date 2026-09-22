@@ -6,6 +6,7 @@ const {
   withMainMenu,
   isCancelText,
   replyCancelled,
+  requirePrivateAction,
   extractMedia,
   sendMediaByType,
 } = require('./flowHelpers');
@@ -63,6 +64,10 @@ const submissionWizard = new Scenes.WizardScene(
   'submission-wizard',
   // Step 0: 收集图片/视频
   async (ctx) => {
+    // 二次防线：万一还有漏网的入口把场景带进群里，直接退出，不留在群里跑流程
+    if (ctx.chat.type !== 'private') {
+      return ctx.scene.leave();
+    }
     const source = ctx.scene.state.source || 'normal';
     ctx.wizard.state.source = source;
     ctx.wizard.state.media = [];
@@ -176,6 +181,7 @@ const submissionWizard = new Scenes.WizardScene(
 );
 
 async function handleSubmitConfirm(ctx) {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   const data = ctx.wizard?.state || {};
   if (!data.media || data.media.length === 0) {
@@ -211,6 +217,7 @@ async function handleSubmitConfirm(ctx) {
 }
 
 async function handleSubmitRestart(ctx) {
+  if (!(await requirePrivateAction(ctx))) return;
   await ctx.answerCbQuery();
   await ctx.editMessageCaption('好，重新来。输入 /start 重新开始投稿。');
   console.log(`[投稿] user ${ctx.from.id} 选择重新填写`);

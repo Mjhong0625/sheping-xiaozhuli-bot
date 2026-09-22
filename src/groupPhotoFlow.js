@@ -22,6 +22,10 @@ const groupPhotoWizard = new Scenes.WizardScene(
   'group-photo-wizard',
   // Step 0: 提示上传
   async (ctx) => {
+    // 二次防线：万一还有漏网的入口把场景带进群里，直接退出，不留在群里跑流程
+    if (ctx.chat.type !== 'private') {
+      return ctx.scene.leave();
+    }
     await ctx.reply(
       '合照专区 📷\n\n把射手们的合照或视频发过来吧，发一份就好，不用填其他资料。',
       withCancel()
