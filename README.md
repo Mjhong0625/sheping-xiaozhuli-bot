@@ -14,24 +14,27 @@ UGC投稿 + 整点结算通告 + 合照专区 + 反spam Telegram bot
 - **反spam**：关键词/链接检测 + flood刷屏检测 + 新用户加群时间记录，触发后删消息+踢出（可重新加入），并记录到日志
 - **投稿超时**：15分钟无响应自动退出流程并提示用户
 - **返回主菜单**：所有流程终点（取消、提交成功、查看详情、合照墙看完、超时提示）都带「🏠 返回主菜单」按钮，不需要用户自己打字 /start
-- **群消息自动消失**：机器人在群里发的所有消息（整点通告、反spam提示）30秒后自动删除，私聊不受影响，时长可调（`GROUP_MESSAGE_TTL_SECONDS`）
+- **群消息自动消失**：只有系统提示/导流消息（整点开场白、结尾导流按钮、反spam警告）30秒后自动删除；猎物/合照正式帖子**不会**消失，会一直留在群里让人看、让人点「🔥感兴趣」。私聊完全不受影响，时长可调（`GROUP_MESSAGE_TTL_SECONDS`）
 - **群按钮跳转私聊**：群里通告底部的「投稿猎物」「合照专区」「我的邀请链接」是跳转私聊bot的深链接，不会在群里直接触发流程
 - **管理员专属指令 `/全部素材`**：私聊里输入，权限锁定 `ADMIN_USERNAMES` 环境变量里的用户名，把全部投稿（含未发布的）原图/视频连同 `file_id`、投稿人、发布状态打包发过去，方便审核
 
 ## 存储架构
 
-- **Google Sheet**（3个分页）：
+- **Google Sheet**（4个分页）：
   - `Submissions`：猎物投稿队列（含 `mediaType` 列区分 photo/video）
   - `Invites`：邀请关系
   - `GroupPhotos`：合照专区队列（含 `mediaType` 列，也是合照墙数据源）
+  - `BotLog`：私聊对话记录，每条私聊消息（文字/图片/视频/文件）自动追加一行
 - **本地 data/store.json**：感兴趣点击去重、flood检测计数、当天猎物编号计数器 —— 高频操作，不走Sheet API避免延迟
-- **日志**：投稿流程关键动作（进入/取消/提交）、反spam删除记录、超时记录，都直接写进 console.log，在 Railway 后台日志查看，不额外存储
+- **日志**：投稿流程关键动作（进入/取消/提交）、反spam删除记录、超时记录，写进 console.log（Railway后台日志查看）；私聊对话内容额外也写进 `BotLog` 分页留存
 
 ## 部署步骤（Railway + GitHub）
 
 ### 1. 准备 Google Sheet
 
-**如果是全新搭建**：用附带的 `sheping_sheet_template_v3.xlsx` 导入 Google Sheets，建三个分页：`Submissions`、`Invites`、`GroupPhotos`，删掉每个分页第2行的示例数据。
+**如果是全新搭建**：用附带的 `sheping_sheet_template_v4.xlsx` 导入 Google Sheets，建四个分页：`Submissions`、`Invites`、`GroupPhotos`、`BotLog`，删掉每个分页第2行的示例数据。
+
+**如果已经在用旧版Sheet（还没有BotLog分页）**：手动新建一个分页，命名为 `BotLog`，表头依次填：`timestamp`、`userId`、`username`、`message`。
 
 **如果已经在用旧版Sheet**：手动在现有表格里加一列：
 - `Submissions` 表：M列加表头 `mediaType`

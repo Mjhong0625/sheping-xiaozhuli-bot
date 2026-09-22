@@ -56,17 +56,16 @@ async function sendHourlySettlement(bot) {
     const interestCount = store.getInterestCount(sub.id);
 
     try {
-      await sendGroupThenAutoDelete(bot, () =>
-        sendByType(bot, groupChatId, sub.mediaType, sub.photoFileId, {
-          caption,
-          ...Markup.inlineKeyboard([
-            [
-              Markup.button.callback(`🔥 感兴趣 (${interestCount})`, `interest_${sub.id}`),
-              Markup.button.callback('👁 查看详情', `detail_${sub.id}`),
-            ],
-          ]),
-        })
-      );
+      // 正式内容帖子（猎物）不自动消失，只有系统提示/导流消息才会消失
+      await sendByType(bot, groupChatId, sub.mediaType, sub.photoFileId, {
+        caption,
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback(`🔥 感兴趣 (${interestCount})`, `interest_${sub.id}`),
+            Markup.button.callback('👁 查看详情', `detail_${sub.id}`),
+          ],
+        ]),
+      });
       await sheets.markPosted(sub.rowNumber);
     } catch (e) {
       console.error(`发送猎物 #${sub.id} 失败:`, e.message);
@@ -79,11 +78,10 @@ async function sendHourlySettlement(bot) {
   );
   for (const photo of orderedPhotos) {
     try {
-      await sendGroupThenAutoDelete(bot, () =>
-        sendByType(bot, groupChatId, photo.mediaType, photo.photoFileId, {
-          caption: '📷 合照专区',
-        })
-      );
+      // 正式内容帖子（合照）同样不自动消失
+      await sendByType(bot, groupChatId, photo.mediaType, photo.photoFileId, {
+        caption: '📷 合照专区',
+      });
       await groupPhotoSheets.markGroupPhotoPosted(photo.rowNumber);
     } catch (e) {
       console.error(`发送合照 #${photo.id} 失败:`, e.message);

@@ -5,6 +5,7 @@ const antispam = require('./antispam');
 const store = require('./store');
 const sheets = require('./sheets');
 const groupPhotoSheets = require('./groupPhotoSheets');
+const chatLogSheets = require('./chatLogSheets');
 const invite = require('./invite');
 const { sessionStore } = require('./sessionStore');
 const { submissionWizard, handleSubmitConfirm, handleSubmitRestart } = require('./submissionFlow');
@@ -45,7 +46,7 @@ bot.use((ctx, next) => {
   return next();
 });
 
-// ---- 私聊对话记录（方便运营排查用户实际在跟bot说什么） ----
+// ---- 私聊对话记录（方便运营排查用户实际在跟bot说什么），同时写进Railway日志和Sheet ----
 bot.use((ctx, next) => {
   if (ctx.chat?.type === 'private' && ctx.message) {
     const m = ctx.message;
@@ -58,6 +59,9 @@ bot.use((ctx, next) => {
     console.log(
       `[私聊记录] user ${ctx.from.id}(@${ctx.from.username || '-'}): ${preview}`
     );
+    chatLogSheets.appendChatLog(ctx.from.id, ctx.from.username, preview).catch((e) => {
+      console.error('[私聊记录] 写入Sheet失败:', e.message);
+    });
   }
   return next();
 });
