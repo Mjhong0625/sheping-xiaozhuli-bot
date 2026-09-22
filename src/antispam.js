@@ -1,9 +1,10 @@
 const store = require('./store');
-const { scheduleAutoDelete } = require('./flowHelpers');
 
 const FLOOD_LIMIT = parseInt(process.env.FLOOD_MESSAGE_LIMIT || '5', 10);
 const FLOOD_WINDOW = parseInt(process.env.FLOOD_WINDOW_SECONDS || '10', 10);
 const NEW_USER_GRACE = parseInt(process.env.NEW_USER_GRACE_SECONDS || '15', 10);
+const DUPLICATE_LIMIT = parseInt(process.env.DUPLICATE_TEXT_LIMIT || '2', 10);
+const DUPLICATE_WINDOW = parseInt(process.env.DUPLICATE_TEXT_WINDOW_SECONDS || '60', 10);
 const KEYWORDS = (process.env.SPAM_KEYWORDS || '')
   .split(',')
   .map((k) => k.trim().toLowerCase())
@@ -45,6 +46,17 @@ async function handleGroupMessage(ctx, next) {
     if (isFlooding) violation = 'flood';
   }
 
+  // 4. 重复文字检测（同一用户短时间内发一模一样的文字超过次数，正常人不会这样）
+  if (!violation && text) {
+    const isDuplicateSpam = store.recordAndCheckDuplicate(
+      userId,
+      text,
+      DUPLICATE_WINDOW,
+      DUPLICATE_LIMIT
+    );
+    if (isDuplicateSpam) violation = 'duplicate';
+  }
+
   if (violation) {
     try {
       const originalText = text || '(非文字消息)';
@@ -53,10 +65,7 @@ async function handleGroupMessage(ctx, next) {
         until_date: Math.floor(Date.now() / 1000) + 60, // 临时封禁60秒=等效踢出，可再加入
       });
       await ctx.telegram.unbanChatMember(ctx.chat.id, userId); // 解除封禁，允许之后重新加入
-      const warning = await ctx.reply('⚠️ 检测到异常消息，已自动处理。', {
-        reply_to_message_id: undefined,
-      });
-      scheduleAutoDelete(ctx.telegram, ctx.chat.id, warning.message_id);
+      // 静默处理：不在群里发提示，只留log
       console.log(
         `[反spam] 群消息删除 - user ${userId} - 原因:${violation} - 原文:"${originalText}"`
       );

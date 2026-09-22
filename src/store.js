@@ -5,12 +5,14 @@ const DB_PATH = path.join(__dirname, '..', 'data', 'store.json');
 
 function load() {
   if (!fs.existsSync(DB_PATH)) {
-    return { interests: {}, floodTracker: {}, newUsers: {} };
+    return { interests: {}, floodTracker: {}, newUsers: {}, duplicateTracker: {} };
   }
   try {
-    return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+    const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+    if (!data.duplicateTracker) data.duplicateTracker = {};
+    return data;
   } catch (e) {
-    return { interests: {}, floodTracker: {}, newUsers: {} };
+    return { interests: {}, floodTracker: {}, newUsers: {}, duplicateTracker: {} };
   }
 }
 
@@ -79,6 +81,22 @@ function isNewUserWithinGrace(userId, graceSeconds) {
   return Date.now() - joinedAt < graceSeconds * 1000;
 }
 
+// ---- 重复文字检测（同一用户短时间内发完全相同的文字超过次数） ----
+function recordAndCheckDuplicate(userId, text, windowSeconds, limit) {
+  const db = load();
+  const uid = String(userId);
+  const now = Date.now();
+  if (!db.duplicateTracker[uid]) db.duplicateTracker[uid] = [];
+  // 只保留窗口时间内的记录
+  db.duplicateTracker[uid] = db.duplicateTracker[uid].filter(
+    (e) => now - e.time < windowSeconds * 1000
+  );
+  db.duplicateTracker[uid].push({ text, time: now });
+  const sameCount = db.duplicateTracker[uid].filter((e) => e.text === text).length;
+  save(db);
+  return sameCount > limit;
+}
+
 module.exports = {
   addInterest,
   getInterestCount,
@@ -86,4 +104,5 @@ module.exports = {
   recordMessage,
   markUserJoined,
   isNewUserWithinGrace,
+  recordAndCheckDuplicate,
 };
