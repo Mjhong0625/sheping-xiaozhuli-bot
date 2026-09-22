@@ -138,6 +138,11 @@ bot.start(async (ctx) => {
     );
     return;
   }
+  if (payload && payload.startsWith('detail_')) {
+    const submissionId = payload.slice('detail_'.length);
+    await sendSubmissionDetail(ctx, submissionId);
+    return;
+  }
 
   await sendStartMenu(ctx);
 });
@@ -376,12 +381,10 @@ bot.action(/interest_(.+)/, async (ctx) => {
 });
 
 // ---- 每小时通告按钮：查看详情（私聊弹出完整资料） ----
-bot.action(/detail_(.+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const submissionId = ctx.match[1];
+async function sendSubmissionDetail(ctx, submissionId) {
   const sub = await sheets.getSubmissionById(submissionId).catch(() => null);
   if (!sub) {
-    await ctx.reply('抱歉，找不到这条资料。');
+    await ctx.reply('抱歉，找不到这条资料。', withMainMenu());
     return;
   }
   const lines = [
@@ -405,9 +408,15 @@ bot.action(/detail_(.+)/, async (ctx) => {
     }
     await ctx.telegram.sendMessage(ctx.from.id, '还想看点别的？', withMainMenu());
   } catch (e) {
-    // 用户没有先私聊过bot，无法主动发消息
-    await ctx.reply('请先私聊我一次（点 Start），我才能把详情发给你哦。');
+    console.error('[查看详情] 发送失败:', e.message);
+    await ctx.reply('这条资料发送失败了，可能素材已失效。', withMainMenu());
   }
+}
+
+// 旧版已经发出去的通告里，「查看详情」按钮可能还是callback（升级前的消息），保留兼容
+bot.action(/detail_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  await sendSubmissionDetail(ctx, ctx.match[1]);
 });
 
 // ---- 私聊里打字"取消"（不在按钮场景内的兜底） ----

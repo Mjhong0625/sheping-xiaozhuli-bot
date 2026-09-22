@@ -62,7 +62,10 @@ async function sendHourlySettlement(bot) {
         ...Markup.inlineKeyboard([
           [
             Markup.button.callback(`🔥 感兴趣 (${interestCount})`, `interest_${sub.id}`),
-            Markup.button.callback('👁 查看详情', `detail_${sub.id}`),
+            Markup.button.url(
+              '👁 查看详情',
+              `https://t.me/${botUsername}?start=detail_${sub.id}`
+            ),
           ],
         ]),
       });
